@@ -1,0 +1,173 @@
+:root {
+  color-scheme: dark;
+  font-family: "Space Grotesk", system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+  --bg-gradient-start: #0f172a;
+  --bg-gradient-end: #1e293b;
+  --accent: #facc15;
+  --panel-bg: rgba(15, 23, 42, 0.85);
+  --panel-border: rgba(148, 163, 184, 0.35);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body,
+html {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: radial-gradient(circle at 20% 20%, #1f2937, transparent 55%),
+    radial-gradient(circle at 80% 0%, rgba(56, 189, 248, 0.25), transparent 60%),
+    linear-gradient(160deg, var(--bg-gradient-start), var(--bg-gradient-end));
+  color: #e2e8f0;
+}
+
+#app {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.overlay {
+  position: absolute;
+  top: 2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
+  background: rgba(15, 23, 42, 0.65);
+  padding: 1rem 2rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  backdrop-filter: blur(8px);
+  z-index: 10;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.5);
+}
+
+.overlay h1 {
+  font-size: 1.6rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.overlay p {
+  font-size: 0.9rem;
+  opacity: 0.8;
+}
+
+#canvas-container {
+  width: 100%;
+  height: 100%;
+}
+
+.tooltip {
+  position: fixed;
+  pointer-events: none;
+  max-width: 360px;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid var(--panel-border);
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  z-index: 20;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.6);
+}
+
+.tooltip.hidden {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.tooltip.visible {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 120ms ease-out;
+}
+
+.info-panel {
+  position: absolute;
+  bottom: 2rem;
+  right: 2rem;
+  width: min(420px, 90vw);
+  padding: 1.2rem 1.4rem;
+  border-radius: 1.2rem;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  box-shadow: 0 20px 45px rgba(2, 6, 23, 0.45);
+  backdrop-filter: blur(12px);
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.info-panel.hidden {
+  display: none;
+}
+
+#close-info {
+  align-self: flex-end;
+  border: none;
+  background: rgba(148, 163, 184, 0.25);
+  color: #e2e8f0;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 999px;
+  transition: background 120ms ease;
+}
+
+#close-info:hover {
+  background: rgba(250, 204, 21, 0.35);
+}
+
+#info-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+#info-content {
+  white-space: pre-line;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+#info-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+#info-link:hover {
+  text-decoration: underline;
+}
+
+#info-link.hidden {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .overlay {
+    top: 1rem;
+    width: 90vw;
+    padding: 0.75rem 1.25rem;
+  }
+
+  .overlay h1 {
+    font-size: 1.2rem;
+  }
+
+  .overlay p {
+    font-size: 0.8rem;
+  }
+
+  .info-panel {
+    bottom: 1rem;
+    right: 1rem;
+  }
+}
