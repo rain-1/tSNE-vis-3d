@@ -15,7 +15,10 @@ metadata on hover and click.
 
 The visualization auto-fits the viewport and provides orbit controls for rotation,
 panning, and zooming. Hover a point to preview its snippet, or click to pin a
-story card with the full text and optional hyperlink.
+story card with the full text and optional hyperlink. Use the cluster palette to
+spotlight a single cluster—the camera recenters around its centroid while other
+groups gracefully fade—and tap **Back to all clusters** to return to the full
+constellation.
 
 ## Data format
 
