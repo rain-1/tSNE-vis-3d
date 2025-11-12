@@ -1,5 +1,5 @@
-import * as THREE from "https://cdn.skypack.dev/three@0.156.1";
-import { OrbitControls } from "https://cdn.skypack.dev/three@0.156.1/examples/jsm/controls/OrbitControls.js";
+import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
 const container = document.getElementById("canvas-container");
 const tooltip = document.getElementById("tooltip");
