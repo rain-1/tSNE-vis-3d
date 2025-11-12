@@ -3,6 +3,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
 const container = document.getElementById("canvas-container");
 const tooltip = document.getElementById("tooltip");
+const sparkleLayer = document.getElementById("sparkle-layer");
 const infoPanel = document.getElementById("info-panel");
 const infoTitle = document.getElementById("info-title");
 const infoContent = document.getElementById("info-content");
@@ -10,6 +11,13 @@ const infoLink = document.getElementById("info-link");
 const closeInfoButton = document.getElementById("close-info");
 
 let renderer, scene, camera, controls, points, basePointSize;
+let highlightPoint, highlightMaterial;
+let highlightStartTime = 0;
+let lastHoveredIndex = null;
+let lastSparkleTime = 0;
+
+const HIGHLIGHT_DURATION = 900;
+const SPARKLE_INTERVAL = 36;
 const pointer = new THREE.Vector2();
 const raycaster = new THREE.Raycaster();
 raycaster.params.Points.threshold = 1;
@@ -151,6 +159,8 @@ function createPointCloud(data) {
   points.userData = userData;
   scene.add(points);
 
+  createHighlightPoint(sprite);
+
   raycaster.params.Points.threshold = Math.max(basePointSize * 0.85, 0.8);
 
   if (geometry.boundingSphere) {
@@ -274,6 +284,7 @@ function onPointerMove(event) {
   pointer.y = -((event.clientY - bounds.top) / bounds.height) * 2 + 1;
 
   updateTooltip(event.clientX, event.clientY);
+  spawnSparkle(event.clientX, event.clientY);
 }
 
 function onClick(event) {
@@ -288,6 +299,10 @@ function onClick(event) {
 
   if (intersects.length > 0) {
     const { index } = intersects[0];
+    if (index !== lastHoveredIndex) {
+      triggerHighlight(intersects[0]);
+      lastHoveredIndex = index;
+    }
     const metadata = points.userData[index];
     showInfoPanel(metadata);
   }
@@ -336,12 +351,14 @@ function updateTooltip(clientX, clientY) {
   } else {
     tooltip.classList.add("hidden");
     tooltip.classList.remove("visible");
+    lastHoveredIndex = null;
   }
 }
 
 function hideTooltip() {
   tooltip.classList.add("hidden");
   tooltip.classList.remove("visible");
+  lastHoveredIndex = null;
 }
 
 function escapeHtml(text) {
@@ -371,6 +388,103 @@ function animate(time = 0) {
     material.size = basePointSize + pulsate;
     points.rotation.y += 0.0004;
   }
+  updateHighlight();
   controls.update();
   renderer.render(scene, camera);
+}
+
+function createHighlightPoint(sprite) {
+  if (highlightPoint) {
+    scene.remove(highlightPoint);
+    highlightPoint.geometry.dispose();
+    highlightMaterial.dispose();
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute(
+    "position",
+    new THREE.Float32BufferAttribute([0, 0, 0], 3)
+  );
+
+  highlightMaterial = new THREE.PointsMaterial({
+    size: basePointSize * 2.6,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    map: sprite,
+    alphaMap: sprite,
+    alphaTest: 0.05,
+    color: new THREE.Color(0xffffff),
+  });
+
+  highlightPoint = new THREE.Points(geometry, highlightMaterial);
+  highlightPoint.visible = false;
+  scene.add(highlightPoint);
+}
+
+function triggerHighlight(intersection) {
+  if (!highlightPoint || !highlightMaterial || !points) return;
+
+  const { index, point } = intersection;
+  highlightPoint.position.copy(point);
+
+  const colorAttr = points.geometry.getAttribute("color");
+  if (colorAttr && typeof colorAttr.getX === "function") {
+    const r = colorAttr.getX(index);
+    const g = colorAttr.getY(index);
+    const b = colorAttr.getZ(index);
+    highlightMaterial.color.setRGB(r, g, b);
+  }
+
+  highlightStartTime = performance.now();
+  highlightMaterial.size = basePointSize * 2.6;
+  highlightMaterial.opacity = 1;
+  highlightPoint.visible = true;
+}
+
+function updateHighlight() {
+  if (!highlightPoint || !highlightPoint.visible) return;
+
+  const now = performance.now();
+  const elapsed = now - highlightStartTime;
+
+  if (elapsed >= HIGHLIGHT_DURATION) {
+    highlightPoint.visible = false;
+    return;
+  }
+
+  const progress = elapsed / HIGHLIGHT_DURATION;
+  const fade = 1 - progress;
+  const pulse = 1 + Math.sin(progress * Math.PI) * 0.9;
+  highlightMaterial.opacity = fade;
+  highlightMaterial.size = basePointSize * (2.4 + pulse * 0.9);
+}
+
+function spawnSparkle(x, y) {
+  if (!sparkleLayer) return;
+
+  const now = performance.now();
+  if (now - lastSparkleTime < SPARKLE_INTERVAL) return;
+  lastSparkleTime = now;
+
+  const sparkle = document.createElement("span");
+  sparkle.className = "sparkle";
+  sparkle.style.left = `${x}px`;
+  sparkle.style.top = `${y}px`;
+
+  const hue = Math.floor(180 + Math.random() * 140);
+  const saturation = 70 + Math.random() * 20;
+  const lightness = 60 + Math.random() * 20;
+  const size = 10 + Math.random() * 18;
+  sparkle.style.setProperty(
+    "--sparkle-color",
+    `hsla(${hue}, ${saturation}%, ${lightness}%, 0.95)`
+  );
+  sparkle.style.setProperty("--sparkle-size", `${size}px`);
+
+  sparkleLayer.appendChild(sparkle);
+  sparkle.addEventListener("animationend", () => {
+    sparkle.remove();
+  });
 }

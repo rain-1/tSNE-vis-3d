@@ -63,6 +63,61 @@ html {
   height: 100%;
 }
 
+#sparkle-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 8;
+  mix-blend-mode: screen;
+}
+
+.sparkle {
+  position: absolute;
+  width: var(--sparkle-size, 12px);
+  height: var(--sparkle-size, 12px);
+  border-radius: 999px;
+  pointer-events: none;
+  background: radial-gradient(
+    circle,
+    var(--sparkle-color, rgba(250, 204, 21, 0.95)) 0%,
+    rgba(255, 255, 255, 0.2) 40%,
+    rgba(255, 255, 255, 0) 70%
+  );
+  box-shadow: 0 0 12px rgba(255, 255, 255, 0.55);
+  filter: saturate(120%);
+  transform: translate(-50%, -50%) scale(0.4);
+  opacity: 0;
+  animation: sparkle-trail 0.8s ease-out forwards;
+}
+
+.sparkle::after {
+  content: "";
+  position: absolute;
+  inset: 25%;
+  border-radius: inherit;
+  background: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 0.9) 0%,
+    rgba(255, 255, 255, 0) 70%
+  );
+  filter: blur(1px);
+}
+
+@keyframes sparkle-trail {
+  0% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(0.45) rotate(0deg);
+  }
+  60% {
+    opacity: 0.85;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.75) rotate(25deg);
+  }
+}
+
 .tooltip {
   position: fixed;
   pointer-events: none;
