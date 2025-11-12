@@ -165,7 +165,8 @@ function createPointCloud(data) {
   geometry.center();
   geometry.computeBoundingSphere();
 
-  basePointSize = Math.max(0.22, 45 / Math.sqrt(data.length));
+  const scaledSize = 120 / Math.sqrt(data.length);
+  basePointSize = Math.min(Math.max(scaledSize, 3.5), 40);
 
   const sprite = createPointSprite();
 
@@ -180,8 +181,8 @@ function createPointCloud(data) {
       uPixelRatio: { value: Math.min(window.devicePixelRatio, 2) },
       uSprite: { value: sprite },
       uFadeDistance: { value: fadeDistance },
-      uGlowBoost: { value: 2.2 },
-      uMinFade: { value: 0.12 },
+      uGlowBoost: { value: 1.8 },
+      uMinFade: { value: 0.32 },
       uPulseAmp: { value: 0.28 },
     },
     vertexShader: `
@@ -205,9 +206,10 @@ function createPointCloud(data) {
 
         float pulse = sin(uTime + pulseSeed);
         float size = uSize * (1.0 + uPulseAmp * pulse);
-        size = max(size, uSize * 0.6);
+        size = max(size, uSize * 0.65);
 
-        gl_PointSize = max(1.2, (uPixelRatio * size) / max(0.0001, -mvPosition.z));
+        float perspectiveScale = 45.0 / max(0.0001, -mvPosition.z);
+        gl_PointSize = clamp(uPixelRatio * size * perspectiveScale, 2.0, 160.0);
         gl_Position = projectionMatrix * mvPosition;
       }
     `,
@@ -226,22 +228,22 @@ function createPointCloud(data) {
         if (spriteSample.a < 0.05) discard;
 
         float fade = clamp(1.0 - (vDistance / uFadeDistance), 0.0, 1.0);
-        float depthFade = mix(uMinFade, 1.0, pow(fade, 1.45));
+        float depthStrength = mix(uMinFade, 1.0, pow(fade, 1.1));
         float glow = clamp(vGlow, 0.0, 1.25);
-        float glowMix = smoothstep(0.0, 1.2, glow);
 
-        vec3 baseColor = vColor * depthFade * spriteSample.r;
-        vec3 glowColor = vColor * (0.45 + uGlowBoost * glow) * spriteSample.a;
+        vec3 spriteTint = mix(vec3(1.0), spriteSample.rgb, 0.65);
+        vec3 baseColor = vColor * spriteTint * depthStrength;
+        vec3 glowColor = vColor * spriteSample.a * (0.35 + uGlowBoost * glow);
 
-        vec3 finalColor = mix(vec3(0.0), baseColor, depthFade) + glowColor * glowMix * 0.55;
-        float alpha = spriteSample.a * (0.36 + 0.64 * depthFade + glowMix * 0.65);
+        vec3 finalColor = baseColor + glowColor;
+        float alpha = spriteSample.a * clamp(depthStrength + glow * 0.55, 0.25, 1.0);
 
         gl_FragColor = vec4(finalColor, alpha);
       }
     `,
     transparent: true,
     depthWrite: false,
-    blending: THREE.AdditiveBlending,
+    blending: THREE.NormalBlending,
   });
 
   baseColorArray = Float32Array.from(colors);
@@ -799,8 +801,9 @@ function createHighlightPoint(sprite) {
     new THREE.Float32BufferAttribute([0, 0, 0], 3)
   );
 
+  const initialHighlightSize = Math.max(basePointSize * 1.4, basePointSize + 2.5);
   highlightMaterial = new THREE.PointsMaterial({
-    size: basePointSize * 3.1,
+    size: initialHighlightSize,
     transparent: true,
     opacity: 0,
     depthWrite: false,
@@ -846,7 +849,8 @@ function triggerHighlight(intersection, options = {}) {
 
   highlightStartTime = performance.now();
   highlightBoost = Math.max(1, boost);
-  highlightMaterial.size = basePointSize * 3.2 * highlightBoost;
+  const activeHighlightSize = Math.max(basePointSize * 1.6, basePointSize + 3);
+  highlightMaterial.size = activeHighlightSize * highlightBoost;
   highlightMaterial.opacity = 1;
   highlightPoint.visible = true;
 
@@ -866,10 +870,10 @@ function updateHighlight() {
 
   const progress = elapsed / HIGHLIGHT_DURATION;
   const fade = 1 - progress;
-  const pulse = 1 + Math.sin(progress * Math.PI) * 0.9;
+  const pulse = 1 + Math.sin(progress * Math.PI) * 0.85;
   highlightMaterial.opacity = fade;
-  highlightMaterial.size =
-    basePointSize * (2.6 + pulse * 1.2) * Math.max(1, highlightBoost * 0.9);
+  const pulseBase = Math.max(basePointSize * 1.35, basePointSize + 2.2);
+  highlightMaterial.size = pulseBase * pulse * Math.max(1, highlightBoost * 0.75);
 }
 
 function spawnSparkle(x, y) {
