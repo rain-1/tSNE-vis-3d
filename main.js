@@ -12,7 +12,7 @@ const closeInfoButton = document.getElementById("close-info");
 let renderer, scene, camera, controls, points, basePointSize;
 const pointer = new THREE.Vector2();
 const raycaster = new THREE.Raycaster();
-raycaster.params.Points.threshold = 0.4;
+raycaster.params.Points.threshold = 1;
 
 init();
 loadData();
@@ -129,21 +129,29 @@ function createPointCloud(data) {
   geometry.center();
   geometry.computeBoundingSphere();
 
-  basePointSize = Math.max(0.5, 100 / Math.sqrt(data.length));
+  basePointSize = Math.max(0.4, 90 / Math.sqrt(data.length));
+
+  const sprite = createPointSprite();
 
   const material = new THREE.PointsMaterial({
     size: basePointSize,
     vertexColors: true,
     transparent: true,
-    opacity: 0.9,
+    opacity: 0.95,
     depthWrite: false,
+    depthTest: true,
     sizeAttenuation: true,
     blending: THREE.AdditiveBlending,
+    map: sprite,
+    alphaMap: sprite,
+    alphaTest: 0.1,
   });
 
   points = new THREE.Points(geometry, material);
   points.userData = userData;
   scene.add(points);
+
+  raycaster.params.Points.threshold = Math.max(basePointSize * 0.85, 0.8);
 
   if (geometry.boundingSphere) {
     frameScene(geometry.boundingSphere);
@@ -184,6 +192,39 @@ function createClusterColorMap(clusters) {
   });
 
   return (cluster) => colorCache.get(cluster) ?? 0xffffff;
+}
+
+function createPointSprite() {
+  const size = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+
+  const context = canvas.getContext("2d");
+  const gradient = context.createRadialGradient(
+    size / 2,
+    size / 2,
+    size * 0.08,
+    size / 2,
+    size / 2,
+    size * 0.48
+  );
+
+  gradient.addColorStop(0, "rgba(255, 255, 255, 1)");
+  gradient.addColorStop(0.2, "rgba(255, 255, 255, 0.95)");
+  gradient.addColorStop(0.5, "rgba(226, 232, 240, 0.4)");
+  gradient.addColorStop(1, "rgba(15, 23, 42, 0)");
+
+  context.fillStyle = gradient;
+  context.beginPath();
+  context.arc(size / 2, size / 2, size * 0.48, 0, Math.PI * 2);
+  context.fill();
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.needsUpdate = true;
+
+  return texture;
 }
 
 function createGradientPlane() {
