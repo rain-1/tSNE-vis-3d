@@ -33,6 +33,7 @@ function init() {
   const far = 1000;
   camera = new THREE.PerspectiveCamera(fov, aspect, near, far);
   camera.position.set(30, 25, 35);
+  camera.lookAt(0, 0, 0);
 
   controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
@@ -41,6 +42,8 @@ function init() {
   controls.autoRotateSpeed = 0.6;
   controls.minDistance = 10;
   controls.maxDistance = 120;
+  controls.target.set(0, 0, 0);
+  controls.update();
 
   const ambient = new THREE.AmbientLight(0xffffff, 0.65);
   scene.add(ambient);
@@ -123,8 +126,8 @@ function createPointCloud(data) {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-  geometry.computeBoundingSphere();
   geometry.center();
+  geometry.computeBoundingSphere();
 
   basePointSize = Math.max(0.5, 100 / Math.sqrt(data.length));
 
@@ -141,6 +144,31 @@ function createPointCloud(data) {
   points = new THREE.Points(geometry, material);
   points.userData = userData;
   scene.add(points);
+
+  if (geometry.boundingSphere) {
+    frameScene(geometry.boundingSphere);
+  }
+}
+
+function frameScene(boundingSphere) {
+  const { center, radius } = boundingSphere;
+  const safeRadius = Number.isFinite(radius) && radius > 0 ? radius : 1;
+  const offset = Math.max(safeRadius * 2.5, 12);
+  const focusPoint = center ?? new THREE.Vector3();
+
+  controls.target.copy(focusPoint);
+
+  const direction = new THREE.Vector3(1, 0.8, 1).normalize();
+  const newPosition = direction.multiplyScalar(offset).add(focusPoint);
+  camera.position.copy(newPosition);
+  camera.near = Math.max(0.1, safeRadius * 0.02);
+  camera.far = Math.max(offset * 10, safeRadius * 10, 500);
+  camera.updateProjectionMatrix();
+  camera.lookAt(focusPoint);
+
+  controls.minDistance = Math.max(safeRadius * 0.5, 2);
+  controls.maxDistance = Math.max(offset * 3, controls.minDistance + 10);
+  controls.update();
 }
 
 function createClusterColorMap(clusters) {
