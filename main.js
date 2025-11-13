@@ -561,6 +561,21 @@ function setActiveClusterButton(clusterId) {
   });
 }
 
+function setHoveredClusterButton(clusterId) {
+  if (!clusterButtons) return;
+  const buttons = clusterButtons.querySelectorAll(".cluster-button");
+  const hasTarget = clusterId !== null && clusterId !== undefined;
+  const target = hasTarget ? String(clusterId) : null;
+
+  buttons.forEach((button) => {
+    if (hasTarget && button.dataset.cluster === target) {
+      button.classList.add("is-hovered");
+    } else {
+      button.classList.remove("is-hovered");
+    }
+  });
+}
+
 function clamp01(value) {
   if (Number.isNaN(value)) return 0;
   return Math.min(1, Math.max(0, value));
@@ -769,11 +784,13 @@ function updateTooltip(clientX, clientY) {
 
     triggerHighlight(intersection);
     lastHoveredIndex = index;
+    setHoveredClusterButton(metadata.cluster);
   } else {
     tooltip.classList.add("hidden");
     tooltip.classList.remove("visible");
     lastHoveredIndex = null;
     setHoverColor(null);
+    setHoveredClusterButton(null);
   }
 }
 
@@ -782,6 +799,7 @@ function hideTooltip() {
   tooltip.classList.remove("visible");
   lastHoveredIndex = null;
   setHoverColor(null);
+  setHoveredClusterButton(null);
 }
 
 function escapeHtml(text) {
