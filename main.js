@@ -13,7 +13,7 @@ const clusterControls = document.getElementById("cluster-controls");
 const clusterButtons = document.getElementById("cluster-buttons");
 const resetFocusButton = document.getElementById("reset-focus");
 
-let renderer, scene, camera, controls, points, basePointSize;
+let renderer, scene, camera, controls, points, pointsGroup, basePointSize;
 let highlightPoint, highlightMaterial;
 let highlightStartTime = 0;
 let highlightBoost = 1;
@@ -23,15 +23,19 @@ let lastFrameTime = 0;
 let glowAttribute = null;
 let glowNeedsDecay = false;
 let baseColorArray = null;
+let colorFadeCurrent = null;
+let colorFadeTarget = null;
 let clusterMeta = new Map();
 let focusedCluster = null;
 let fullBoundingSphere = null;
 let activeHoverIndex = null;
-const hoverOriginalColor = [0, 0, 0];
 let selectedPointIndex = null;
 const selectedPointPosition = new THREE.Vector3();
 const tempVector = new THREE.Vector3();
 const tempWorldPosition = new THREE.Vector3();
+const focusDirection = new THREE.Vector3(1, 0.8, 1).normalize();
+let focusAnimation = null;
+const rotationPivot = new THREE.Vector3();
 
 const SPARKLE_INTERVAL = 14;
 const FOCUS_FADE_FACTOR = 0.06;
@@ -255,11 +259,27 @@ function createPointCloud(data) {
   });
 
   baseColorArray = Float32Array.from(colors);
+  colorFadeCurrent = new Float32Array(data.length).fill(1);
+  colorFadeTarget = new Float32Array(data.length).fill(1);
   points = new THREE.Points(geometry, material);
   points.userData = userData;
+  points.position.set(0, 0, 0);
+  points.rotation.set(0, 0, 0);
   activeHoverIndex = null;
   selectedPointIndex = null;
-  scene.add(points);
+
+  if (!pointsGroup) {
+    pointsGroup = new THREE.Group();
+    scene.add(pointsGroup);
+  }
+
+  pointsGroup.clear();
+  pointsGroup.position.set(0, 0, 0);
+  pointsGroup.rotation.set(0, 0, 0);
+  pointsGroup.add(points);
+  rotationPivot.set(0, 0, 0);
+  pointsGroup.updateMatrixWorld(true);
+  points.updateMatrixWorld(true);
 
   createHighlightPoint(sprite);
 
@@ -270,7 +290,7 @@ function createPointCloud(data) {
 
   if (geometry.boundingSphere) {
     fullBoundingSphere = geometry.boundingSphere.clone();
-    frameScene(fullBoundingSphere);
+    frameScene(fullBoundingSphere, { immediate: true });
   }
 
   focusedCluster = null;
@@ -278,25 +298,165 @@ function createPointCloud(data) {
   populateClusterControls();
 }
 
-function frameScene(boundingSphere) {
-  const { center, radius } = boundingSphere;
-  const safeRadius = Number.isFinite(radius) && radius > 0 ? radius : 1;
-  const offset = Math.max(safeRadius * 2.5, 12);
-  const focusPoint = center ?? new THREE.Vector3();
+function frameScene(boundingSphere, options = {}) {
+  if (!boundingSphere) return;
 
-  controls.target.copy(focusPoint);
+  const { immediate = false, duration = 750, maintainDirection = false } = options;
+  const state = computeCameraFrame(boundingSphere, { maintainDirection });
 
-  const direction = new THREE.Vector3(1, 0.8, 1).normalize();
-  const newPosition = direction.multiplyScalar(offset).add(focusPoint);
-  camera.position.copy(newPosition);
-  camera.near = Math.max(0.1, safeRadius * 0.02);
-  camera.far = Math.max(offset * 10, safeRadius * 10, 500);
+  if (immediate) {
+    focusAnimation = null;
+    camera.position.copy(state.position);
+    controls.target.copy(state.target);
+    camera.near = state.near;
+    camera.far = state.far;
+    camera.updateProjectionMatrix();
+    camera.lookAt(state.target);
+    controls.minDistance = state.minDistance;
+    controls.maxDistance = state.maxDistance;
+    controls.update();
+  } else {
+    const currentMin = Number.isFinite(controls.minDistance)
+      ? controls.minDistance
+      : state.minDistance;
+    const currentMax = Number.isFinite(controls.maxDistance)
+      ? controls.maxDistance
+      : state.maxDistance;
+
+    state.previousMinDistance = currentMin;
+    state.previousMaxDistance = currentMax;
+
+    controls.minDistance = Math.min(currentMin, state.minDistance);
+    controls.maxDistance = Math.max(currentMax, state.maxDistance);
+    startFocusAnimation(state, duration);
+  }
+}
+
+function computeCameraFrame(boundingSphere, options = {}) {
+  const { maintainDirection = false } = options;
+  const center = boundingSphere.center
+    ? boundingSphere.center.clone()
+    : new THREE.Vector3();
+  const radius = Number.isFinite(boundingSphere.radius)
+    ? Math.max(boundingSphere.radius, 0)
+    : 1;
+
+  const safeRadius = radius > 0 ? radius : 1;
+  const fovRadians = THREE.MathUtils.degToRad(camera?.fov ?? 45);
+  const sinHalfFov = Math.max(Math.sin(fovRadians / 2), 0.0001);
+  const paddedDistance = (safeRadius / sinHalfFov) * 1.08;
+  const baseline = safeRadius * 1.05 + 3;
+  const offset = Math.max(paddedDistance, baseline, 6);
+  const focusPoint = center.clone();
+  let directionVector;
+
+  if (maintainDirection) {
+    directionVector = camera.position.clone().sub(controls.target);
+    if (directionVector.lengthSq() < 1e-6) {
+      directionVector = focusDirection.clone();
+    }
+  } else {
+    directionVector = focusDirection.clone();
+  }
+
+  directionVector.normalize();
+  directionVector.multiplyScalar(offset);
+  const cameraPosition = focusPoint.clone().add(directionVector);
+
+  const near = Math.max(0.1, safeRadius * 0.02);
+  const far = Math.max(offset * 8, safeRadius * 10, 500);
+  const minDistance = Math.max(safeRadius * 0.35 + 1.5, 2.5);
+  const maxDistance = Math.max(offset * 2.6, minDistance + 10);
+
+  return {
+    target: focusPoint,
+    position: cameraPosition,
+    near,
+    far,
+    minDistance,
+    maxDistance,
+  };
+}
+
+function startFocusAnimation(state, duration = 750) {
+  const safeDuration = Math.max(1, duration ?? 750);
+
+  focusAnimation = {
+    startTime: performance.now(),
+    duration: safeDuration,
+    from: {
+      position: camera.position.clone(),
+      target: controls.target.clone(),
+      near: camera.near,
+      far: camera.far,
+      minDistance:
+        state.previousMinDistance ?? controls.minDistance ?? state.minDistance,
+      maxDistance:
+        state.previousMaxDistance ?? controls.maxDistance ?? state.maxDistance,
+    },
+    to: {
+      position: state.position.clone(),
+      target: state.target.clone(),
+      near: state.near,
+      far: state.far,
+      minDistance: state.minDistance,
+      maxDistance: state.maxDistance,
+    },
+  };
+}
+
+function updateFocusAnimation() {
+  if (!focusAnimation) return;
+
+  const now = performance.now();
+  const elapsed = now - focusAnimation.startTime;
+  const progress = clamp(elapsed / focusAnimation.duration, 0, 1);
+  const eased = easeInOutCubic(progress);
+
+  camera.position.copy(focusAnimation.from.position);
+  camera.position.lerp(focusAnimation.to.position, eased);
+
+  controls.target.copy(focusAnimation.from.target);
+  controls.target.lerp(focusAnimation.to.target, eased);
+
+  camera.near = THREE.MathUtils.lerp(
+    focusAnimation.from.near,
+    focusAnimation.to.near,
+    eased
+  );
+  camera.far = THREE.MathUtils.lerp(
+    focusAnimation.from.far,
+    focusAnimation.to.far,
+    eased
+  );
   camera.updateProjectionMatrix();
-  camera.lookAt(focusPoint);
+  camera.updateMatrixWorld();
+  camera.matrixWorldInverse.copy(camera.matrixWorld).invert();
+  controls.minDistance = THREE.MathUtils.lerp(
+    focusAnimation.from.minDistance,
+    focusAnimation.to.minDistance,
+    eased
+  );
+  controls.maxDistance = THREE.MathUtils.lerp(
+    focusAnimation.from.maxDistance,
+    focusAnimation.to.maxDistance,
+    eased
+  );
 
-  controls.minDistance = Math.max(safeRadius * 0.5, 2);
-  controls.maxDistance = Math.max(offset * 3, controls.minDistance + 10);
-  controls.update();
+  if (progress >= 1) {
+    const finalState = focusAnimation.to;
+    camera.position.copy(finalState.position);
+    controls.target.copy(finalState.target);
+    camera.near = finalState.near;
+    camera.far = finalState.far;
+    camera.updateProjectionMatrix();
+    camera.updateMatrixWorld();
+    camera.matrixWorldInverse.copy(camera.matrixWorld).invert();
+    controls.minDistance = finalState.minDistance;
+    controls.maxDistance = finalState.maxDistance;
+    controls.update();
+    focusAnimation = null;
+  }
 }
 
 function createClusterColorMap(clusters) {
@@ -469,11 +629,12 @@ function focusCluster(clusterId) {
   hideTooltip();
   setHoverColor(null);
   clearSelectionHalo();
+  setRotationPivot(meta.center);
 
   const radius = Number.isFinite(meta.radius) && meta.radius > 0 ? meta.radius : 1;
-  const paddedRadius = Math.max(radius * 1.8, basePointSize * 12, 6);
+  const paddedRadius = Math.max(radius * 1.6 + basePointSize * 0.5, 6);
   const focusSphere = new THREE.Sphere(meta.center.clone(), paddedRadius);
-  frameScene(focusSphere);
+  frameScene(focusSphere, { duration: 850, maintainDirection: true });
 
   controls.autoRotate = false;
   setActiveClusterButton(id);
@@ -493,11 +654,13 @@ function resetFocusView() {
   hideTooltip();
   setHoverColor(null);
   clearSelectionHalo();
+  const basePivot = fullBoundingSphere?.center ?? tempVector.set(0, 0, 0);
+  setRotationPivot(basePivot);
 
   controls.autoRotate = true;
 
   if (fullBoundingSphere) {
-    frameScene(fullBoundingSphere);
+    frameScene(fullBoundingSphere, { duration: 900, maintainDirection: true });
   }
 
   if (resetFocusButton) {
@@ -507,41 +670,34 @@ function resetFocusView() {
 }
 
 function applyClusterFade(meta) {
-  const colorAttr = points.geometry.getAttribute("color");
-  if (!colorAttr || !baseColorArray) return;
+  if (!colorFadeTarget || !baseColorArray) return;
 
-  const array = colorAttr.array;
-  const count = colorAttr.count;
+  colorFadeTarget.fill(FOCUS_FADE_FACTOR);
 
-  for (let i = 0; i < count; i += 1) {
-    const baseIndex = i * 3;
-    const baseR = baseColorArray[baseIndex];
-    const baseG = baseColorArray[baseIndex + 1];
-    const baseB = baseColorArray[baseIndex + 2];
-
-    const isFocused = meta.indexSet.has(i);
-    const factor = isFocused ? FOCUS_EMPHASIS_FACTOR : FOCUS_FADE_FACTOR;
-
-    array[baseIndex] = clamp01(baseR * factor);
-    array[baseIndex + 1] = clamp01(baseG * factor);
-    array[baseIndex + 2] = clamp01(baseB * factor);
+  if (meta?.indexSet) {
+    const count = colorFadeTarget.length;
+    meta.indexSet.forEach((index) => {
+      if (index >= 0 && index < count) {
+        colorFadeTarget[index] = FOCUS_EMPHASIS_FACTOR;
+      }
+    });
   }
 
-  colorAttr.needsUpdate = true;
-  if (points.material) {
+  if (points?.material) {
     points.material.needsUpdate = true;
   }
   activeHoverIndex = null;
 }
 
 function restoreBaseColors() {
-  const colorAttr = points?.geometry?.getAttribute("color");
-  if (!colorAttr || !baseColorArray) return;
+  if (!colorFadeTarget || !colorFadeCurrent) return;
 
-  colorAttr.array.set(baseColorArray);
-  colorAttr.needsUpdate = true;
+  const count = colorFadeTarget.length;
+  for (let i = 0; i < count; i += 1) {
+    colorFadeTarget[i] = 1;
+  }
 
-  if (points.material) {
+  if (points?.material) {
     points.material.needsUpdate = true;
   }
   activeHoverIndex = null;
@@ -574,6 +730,93 @@ function setHoveredClusterButton(clusterId) {
       button.classList.remove("is-hovered");
     }
   });
+}
+
+function setRotationPivot(pivot) {
+  if (!points || !pointsGroup) return;
+
+  const source = pivot ?? tempVector.set(0, 0, 0);
+  rotationPivot.copy(source);
+  pointsGroup.position.copy(rotationPivot);
+  points.position.set(-rotationPivot.x, -rotationPivot.y, -rotationPivot.z);
+  points.updateMatrix();
+  pointsGroup.updateMatrixWorld(true);
+  points.updateMatrixWorld(true);
+}
+
+function updateColorFades(delta) {
+  if (!points || !baseColorArray || !colorFadeCurrent || !colorFadeTarget) {
+    return;
+  }
+
+  const colorAttr = points.geometry.getAttribute("color");
+  if (!colorAttr) return;
+
+  const count = colorAttr.count;
+  const array = colorAttr.array;
+  const step = 1 - Math.exp(-delta * 2.1);
+  let needsUpdate = false;
+
+  for (let i = 0; i < count; i += 1) {
+    const current = colorFadeCurrent[i];
+    const target = colorFadeTarget[i];
+    if (Math.abs(current - target) < 0.0005) {
+      colorFadeCurrent[i] = target;
+      continue;
+    }
+
+    const next = THREE.MathUtils.lerp(current, target, step);
+    colorFadeCurrent[i] = next;
+    const baseIndex = i * 3;
+    array[baseIndex] = clamp01(baseColorArray[baseIndex] * next);
+    array[baseIndex + 1] = clamp01(baseColorArray[baseIndex + 1] * next);
+    array[baseIndex + 2] = clamp01(baseColorArray[baseIndex + 2] * next);
+    needsUpdate = true;
+  }
+
+  if (!needsUpdate) {
+    return;
+  }
+
+  if (activeHoverIndex !== null) {
+    applyHoverBrightness(activeHoverIndex, colorAttr);
+  }
+
+  colorAttr.needsUpdate = true;
+}
+
+function applyBaseColorToAttribute(index, colorAttr) {
+  if (!baseColorArray || index < 0) return;
+  const baseIndex = index * 3;
+  const factor = colorFadeCurrent ? colorFadeCurrent[index] : 1;
+  colorAttr.setXYZ(
+    index,
+    clamp01(baseColorArray[baseIndex] * factor),
+    clamp01(baseColorArray[baseIndex + 1] * factor),
+    clamp01(baseColorArray[baseIndex + 2] * factor)
+  );
+}
+
+function applyHoverBrightness(index, colorAttr) {
+  if (!colorAttr) return;
+  applyBaseColorToAttribute(index, colorAttr);
+  const r = colorAttr.getX(index);
+  const g = colorAttr.getY(index);
+  const b = colorAttr.getZ(index);
+  colorAttr.setXYZ(
+    index,
+    clamp01(r * HOVER_BRIGHTEN_FACTOR),
+    clamp01(g * HOVER_BRIGHTEN_FACTOR),
+    clamp01(b * HOVER_BRIGHTEN_FACTOR)
+  );
+}
+
+function easeInOutCubic(t) {
+  if (t <= 0) return 0;
+  if (t >= 1) return 1;
+  return t < 0.5
+    ? 4 * t * t * t
+    : 1 - Math.pow(-2 * t + 2, 3) / 2;
 }
 
 function clamp01(value) {
@@ -827,8 +1070,8 @@ function animate(time = 0) {
   const delta = lastFrameTime ? (time - lastFrameTime) / 1000 : 0.016;
   lastFrameTime = time;
 
-  if (points) {
-    points.rotation.y += 0.00028;
+  if (pointsGroup && points) {
+    pointsGroup.rotation.y += 0.00028;
     const material = points.material;
     if (material && material.uniforms) {
       material.uniforms.uTime.value = time * 0.0016;
@@ -859,8 +1102,12 @@ function animate(time = 0) {
     }
   }
 
-  updateHighlight();
+  updateFocusAnimation();
+  updateColorFades(delta);
   controls.update();
+  camera.updateMatrixWorld();
+  camera.matrixWorldInverse.copy(camera.matrixWorld).invert();
+  updateHighlight();
   renderer.render(scene, camera);
 }
 
@@ -926,12 +1173,7 @@ function setHoverColor(index) {
     activeHoverIndex >= 0 &&
     activeHoverIndex < colorAttr.count
   ) {
-    colorAttr.setXYZ(
-      activeHoverIndex,
-      hoverOriginalColor[0],
-      hoverOriginalColor[1],
-      hoverOriginalColor[2]
-    );
+    applyBaseColorToAttribute(activeHoverIndex, colorAttr);
     updated = true;
     activeHoverIndex = null;
   }
@@ -943,16 +1185,7 @@ function setHoverColor(index) {
     return;
   }
 
-  hoverOriginalColor[0] = colorAttr.getX(index);
-  hoverOriginalColor[1] = colorAttr.getY(index);
-  hoverOriginalColor[2] = colorAttr.getZ(index);
-
-  colorAttr.setXYZ(
-    index,
-    clamp01(hoverOriginalColor[0] * HOVER_BRIGHTEN_FACTOR),
-    clamp01(hoverOriginalColor[1] * HOVER_BRIGHTEN_FACTOR),
-    clamp01(hoverOriginalColor[2] * HOVER_BRIGHTEN_FACTOR)
-  );
+  applyHoverBrightness(index, colorAttr);
   colorAttr.needsUpdate = true;
   activeHoverIndex = index;
 }
@@ -1038,7 +1271,7 @@ function getPointWorldPosition(index, target) {
 
 function clearSelectionHalo() {
   selectedPointIndex = null;
-    selectedPointPosition.set(0, 0, 0);
+  selectedPointPosition.set(0, 0, 0);
   if (highlightPoint) {
     highlightPoint.visible = false;
     highlightMaterial.opacity = 0;
