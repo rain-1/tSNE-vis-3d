@@ -91,7 +91,7 @@ function init() {
 
 async function loadData() {
   try {
-    const response = await fetch("assets/data/sample.jsonl");
+    const response = await fetch("assets/data/df_plot.jsonl");
     if (!response.ok) {
       throw new Error(`Failed to load data: ${response.status}`);
     }
