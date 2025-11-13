@@ -26,11 +26,14 @@ let baseColorArray = null;
 let clusterMeta = new Map();
 let focusedCluster = null;
 let fullBoundingSphere = null;
+let activeHoverIndex = null;
+const hoverOriginalColor = [0, 0, 0];
 
 const HIGHLIGHT_DURATION = 960;
 const SPARKLE_INTERVAL = 14;
 const FOCUS_FADE_FACTOR = 0.06;
 const FOCUS_EMPHASIS_FACTOR = 1.25;
+const HOVER_BRIGHTEN_FACTOR = 2.4;
 const pointer = new THREE.Vector2();
 const raycaster = new THREE.Raycaster();
 raycaster.params.Points.threshold = 1;
@@ -165,7 +168,7 @@ function createPointCloud(data) {
   geometry.center();
   geometry.computeBoundingSphere();
 
-  const scaledSize = 120 / Math.sqrt(data.length);
+  const scaledSize = 4 * 120 / Math.sqrt(data.length);
   basePointSize = Math.min(Math.max(scaledSize, 3.5), 40);
 
   const sprite = createPointSprite();
@@ -181,8 +184,8 @@ function createPointCloud(data) {
       uPixelRatio: { value: Math.min(window.devicePixelRatio, 2) },
       uSprite: { value: sprite },
       uFadeDistance: { value: fadeDistance },
-      uGlowBoost: { value: 1.8 },
-      uMinFade: { value: 0.32 },
+      uGlowBoost: { value: 3.0 },
+      uMinFade: { value: 0.42 },
       uPulseAmp: { value: 0.28 },
     },
     vertexShader: `
@@ -249,6 +252,7 @@ function createPointCloud(data) {
   baseColorArray = Float32Array.from(colors);
   points = new THREE.Points(geometry, material);
   points.userData = userData;
+  activeHoverIndex = null;
   scene.add(points);
 
   createHighlightPoint(sprite);
@@ -256,7 +260,7 @@ function createPointCloud(data) {
   glowAttribute = geometry.getAttribute("glowStrength");
   glowNeedsDecay = false;
 
-  raycaster.params.Points.threshold = Math.max(basePointSize * 1.35, 0.35);
+  raycaster.params.Points.threshold = computePickingThreshold(geometry);
 
   if (geometry.boundingSphere) {
     fullBoundingSphere = geometry.boundingSphere.clone();
@@ -457,6 +461,7 @@ function focusCluster(clusterId) {
   focusedCluster = id;
   applyClusterFade(meta);
   hideTooltip();
+  setHoverColor(null);
 
   if (highlightPoint) {
     highlightPoint.visible = false;
@@ -483,6 +488,7 @@ function resetFocusView() {
   restoreBaseColors();
   setActiveClusterButton(null);
   hideTooltip();
+  setHoverColor(null);
 
   if (highlightPoint) {
     highlightPoint.visible = false;
@@ -525,6 +531,7 @@ function applyClusterFade(meta) {
   if (points.material) {
     points.material.needsUpdate = true;
   }
+  activeHoverIndex = null;
 }
 
 function restoreBaseColors() {
@@ -537,6 +544,7 @@ function restoreBaseColors() {
   if (points.material) {
     points.material.needsUpdate = true;
   }
+  activeHoverIndex = null;
 }
 
 function setActiveClusterButton(clusterId) {
@@ -556,6 +564,11 @@ function setActiveClusterButton(clusterId) {
 function clamp01(value) {
   if (Number.isNaN(value)) return 0;
   return Math.min(1, Math.max(0, value));
+}
+
+function clamp(value, min, max) {
+  if (Number.isNaN(value)) return min;
+  return Math.min(max, Math.max(min, value));
 }
 
 function createPointSprite() {
@@ -657,12 +670,11 @@ function onClick(event) {
 
   raycaster.setFromCamera(pointer, camera);
   const intersects = raycaster.intersectObject(points);
+  const target = pickClosestIntersection(intersects);
 
-  if (intersects.length > 0) {
-    const intersection = intersects[0];
-    const { index } = intersection;
-    triggerHighlight(intersection, { boost: 1.35 });
-    boostGlow(index, 1.25);
+  if (target) {
+    const { index } = target;
+    triggerHighlight(target, { boost: 1.35 });
     lastHoveredIndex = index;
     const metadata = points.userData[index];
     showInfoPanel(metadata);
@@ -697,9 +709,9 @@ function updateTooltip(clientX, clientY) {
 
   raycaster.setFromCamera(pointer, camera);
   const intersects = raycaster.intersectObject(points);
+  const intersection = pickClosestIntersection(intersects);
 
-  if (intersects.length > 0) {
-    const intersection = intersects[0];
+  if (intersection) {
     const { index } = intersection;
     const metadata = points.userData[index];
     const labelSuffix = metadata.label ? ` · ${metadata.label}` : "";
@@ -717,6 +729,7 @@ function updateTooltip(clientX, clientY) {
     tooltip.classList.add("hidden");
     tooltip.classList.remove("visible");
     lastHoveredIndex = null;
+    setHoverColor(null);
   }
 }
 
@@ -724,6 +737,7 @@ function hideTooltip() {
   tooltip.classList.add("hidden");
   tooltip.classList.remove("visible");
   lastHoveredIndex = null;
+  setHoverColor(null);
 }
 
 function escapeHtml(text) {
@@ -801,13 +815,13 @@ function createHighlightPoint(sprite) {
     new THREE.Float32BufferAttribute([0, 0, 0], 3)
   );
 
-  const initialHighlightSize = Math.max(basePointSize * 1.4, basePointSize + 2.5);
+  const initialHighlightSize = Math.max(basePointSize * 0.6, basePointSize + 1.2);
   highlightMaterial = new THREE.PointsMaterial({
     size: initialHighlightSize,
     transparent: true,
     opacity: 0,
     depthWrite: false,
-    blending: THREE.AdditiveBlending,
+    blending: THREE.NormalBlending,
     map: sprite,
     alphaMap: sprite,
     alphaTest: 0.05,
@@ -824,7 +838,7 @@ function boostGlow(index, strength = 1) {
   if (index < 0 || index >= glowAttribute.count) return;
 
   const array = glowAttribute.array;
-  const target = Math.min(1.35, Math.max(strength, array[index]));
+  const target = Math.min(2.4, Math.max(strength, array[index]));
   if (array[index] !== target) {
     array[index] = target;
     glowAttribute.needsUpdate = true;
@@ -832,29 +846,112 @@ function boostGlow(index, strength = 1) {
   glowNeedsDecay = true;
 }
 
+function setHoverColor(index) {
+  if (!points) return;
+  const colorAttr = points.geometry.getAttribute("color");
+  if (!colorAttr) return;
+
+  let updated = false;
+
+  if (index !== null && index === activeHoverIndex) {
+    return;
+  }
+
+  if (
+    activeHoverIndex !== null &&
+    activeHoverIndex >= 0 &&
+    activeHoverIndex < colorAttr.count
+  ) {
+    colorAttr.setXYZ(
+      activeHoverIndex,
+      hoverOriginalColor[0],
+      hoverOriginalColor[1],
+      hoverOriginalColor[2]
+    );
+    updated = true;
+    activeHoverIndex = null;
+  }
+
+  if (index === null || index < 0 || index >= colorAttr.count) {
+    if (updated) {
+      colorAttr.needsUpdate = true;
+    }
+    return;
+  }
+
+  hoverOriginalColor[0] = colorAttr.getX(index);
+  hoverOriginalColor[1] = colorAttr.getY(index);
+  hoverOriginalColor[2] = colorAttr.getZ(index);
+
+  colorAttr.setXYZ(
+    index,
+    clamp01(hoverOriginalColor[0] * HOVER_BRIGHTEN_FACTOR),
+    clamp01(hoverOriginalColor[1] * HOVER_BRIGHTEN_FACTOR),
+    clamp01(hoverOriginalColor[2] * HOVER_BRIGHTEN_FACTOR)
+  );
+  colorAttr.needsUpdate = true;
+  activeHoverIndex = index;
+}
+
+function computePickingThreshold(geometry) {
+  const positionAttr = geometry.getAttribute("position");
+  const count = positionAttr?.count ?? 1;
+  const radius = geometry.boundingSphere?.radius ?? 1;
+
+  if (count <= 1) {
+    return 0.1;
+  }
+
+  const approximateSpacing = Math.max(0.0001, (radius * 2) / Math.cbrt(count));
+  const minThreshold = Math.min(0.06, approximateSpacing * 0.8);
+  const maxThreshold = Math.max(approximateSpacing * 1.35, minThreshold * 1.2);
+  return clamp(approximateSpacing * 0.6, minThreshold, maxThreshold);
+}
+
+function pickClosestIntersection(intersections) {
+  if (!intersections || intersections.length === 0) {
+    return null;
+  }
+
+  let closest = null;
+
+  for (const intersection of intersections) {
+    const candidate = intersection;
+    if (!closest) {
+      closest = candidate;
+      continue;
+    }
+
+    const currentDistanceToRay = candidate.distanceToRay ?? Number.POSITIVE_INFINITY;
+    const bestDistanceToRay = closest.distanceToRay ?? Number.POSITIVE_INFINITY;
+
+    if (currentDistanceToRay < bestDistanceToRay - 1e-6) {
+      closest = candidate;
+    } else if (Math.abs(currentDistanceToRay - bestDistanceToRay) <= 1e-6) {
+      if (candidate.distance < closest.distance) {
+        closest = candidate;
+      }
+    }
+  }
+
+  return closest;
+}
+
 function triggerHighlight(intersection, options = {}) {
   if (!highlightPoint || !highlightMaterial || !points) return;
 
   const { index, point } = intersection;
   const { boost = 1 } = options;
-  highlightPoint.position.copy(point);
 
-  const colorAttr = points.geometry.getAttribute("color");
-  if (colorAttr && typeof colorAttr.getX === "function") {
-    const r = colorAttr.getX(index);
-    const g = colorAttr.getY(index);
-    const b = colorAttr.getZ(index);
-    highlightMaterial.color.setRGB(r, g, b);
-  }
+  highlightPoint.position.copy(point);
+  highlightPoint.visible = false;
+  highlightMaterial.opacity = 0;
 
   highlightStartTime = performance.now();
   highlightBoost = Math.max(1, boost);
-  const activeHighlightSize = Math.max(basePointSize * 1.6, basePointSize + 3);
-  highlightMaterial.size = activeHighlightSize * highlightBoost;
-  highlightMaterial.opacity = 1;
-  highlightPoint.visible = true;
 
-  boostGlow(index, 1.05 * highlightBoost);
+  setHoverColor(index);
+  boostGlow(index, 1.8 * highlightBoost);
 }
 
 function updateHighlight() {
@@ -872,52 +969,10 @@ function updateHighlight() {
   const fade = 1 - progress;
   const pulse = 1 + Math.sin(progress * Math.PI) * 0.85;
   highlightMaterial.opacity = fade;
-  const pulseBase = Math.max(basePointSize * 1.35, basePointSize + 2.2);
-  highlightMaterial.size = pulseBase * pulse * Math.max(1, highlightBoost * 0.75);
+  const pulseBase = Math.max(basePointSize * 0.6, basePointSize + 1.2);
+  highlightMaterial.size = pulseBase * pulse * Math.max(1, highlightBoost * 0.5);
 }
 
 function spawnSparkle(x, y) {
-  if (!sparkleLayer) return;
-
-  const now = performance.now();
-  if (now - lastSparkleTime < SPARKLE_INTERVAL) return;
-  lastSparkleTime = now;
-
-  const burstCount = Math.random() < 0.2 ? 2 : 1;
-  for (let i = 0; i < burstCount; i += 1) {
-    const sparkle = document.createElement("span");
-    sparkle.className = "sparkle";
-    const offsetX = x + (Math.random() - 0.5) * 18;
-    const offsetY = y + (Math.random() - 0.5) * 18;
-    sparkle.style.left = `${offsetX}px`;
-    sparkle.style.top = `${offsetY}px`;
-
-    const hue = Math.floor(180 + Math.random() * 140);
-    const saturation = 60 + Math.random() * 22;
-    const lightness = 58 + Math.random() * 16;
-    const accentHue = (hue + 28 + Math.random() * 36) % 360;
-    const size = 4 + Math.random() * 8;
-    sparkle.style.setProperty(
-      "--sparkle-color",
-      `hsla(${hue}, ${saturation}%, ${lightness}%, 0.95)`
-    );
-    sparkle.style.setProperty(
-      "--sparkle-accent",
-      `hsla(${accentHue}, ${Math.min(95, saturation + 10)}%, ${Math.min(
-        85,
-        lightness + 8
-      )}%, 0.85)`
-    );
-    sparkle.style.setProperty("--sparkle-size", `${size}px`);
-    sparkle.style.setProperty(
-      "--sparkle-rotation",
-      `${Math.random() * 360}deg`
-    );
-    sparkle.style.animationDelay = `${Math.random() * 0.08}s`;
-
-    sparkleLayer.appendChild(sparkle);
-    sparkle.addEventListener("animationend", () => {
-      sparkle.remove();
-    });
-  }
+  return;
 }
