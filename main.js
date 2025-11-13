@@ -28,8 +28,8 @@ let focusedCluster = null;
 let fullBoundingSphere = null;
 let activeHoverIndex = null;
 const hoverOriginalColor = [0, 0, 0];
+let selectedPointIndex = null;
 
-const HIGHLIGHT_DURATION = 960;
 const SPARKLE_INTERVAL = 14;
 const FOCUS_FADE_FACTOR = 0.06;
 const FOCUS_EMPHASIS_FACTOR = 1.25;
@@ -117,6 +117,8 @@ async function loadData() {
 
 function createPointCloud(data) {
   if (!data.length) return;
+
+  clearSelectionHalo();
 
   const positions = new Float32Array(data.length * 3);
   const colors = new Float32Array(data.length * 3);
@@ -253,6 +255,7 @@ function createPointCloud(data) {
   points = new THREE.Points(geometry, material);
   points.userData = userData;
   activeHoverIndex = null;
+  selectedPointIndex = null;
   scene.add(points);
 
   createHighlightPoint(sprite);
@@ -462,10 +465,7 @@ function focusCluster(clusterId) {
   applyClusterFade(meta);
   hideTooltip();
   setHoverColor(null);
-
-  if (highlightPoint) {
-    highlightPoint.visible = false;
-  }
+  clearSelectionHalo();
 
   const radius = Number.isFinite(meta.radius) && meta.radius > 0 ? meta.radius : 1;
   const paddedRadius = Math.max(radius * 1.8, basePointSize * 12, 6);
@@ -489,10 +489,7 @@ function resetFocusView() {
   setActiveClusterButton(null);
   hideTooltip();
   setHoverColor(null);
-
-  if (highlightPoint) {
-    highlightPoint.visible = false;
-  }
+  clearSelectionHalo();
 
   controls.autoRotate = true;
 
@@ -674,7 +671,7 @@ function onClick(event) {
 
   if (target) {
     const { index } = target;
-    triggerHighlight(target, { boost: 1.35 });
+    triggerHighlight(target, { boost: 1.35, halo: true });
     lastHoveredIndex = index;
     const metadata = points.userData[index];
     showInfoPanel(metadata);
@@ -702,6 +699,7 @@ function showInfoPanel(metadata) {
 
 function hideInfoPanel() {
   infoPanel.classList.add("hidden");
+  clearSelectionHalo();
 }
 
 function updateTooltip(clientX, clientY) {
@@ -815,13 +813,13 @@ function createHighlightPoint(sprite) {
     new THREE.Float32BufferAttribute([0, 0, 0], 3)
   );
 
-  const initialHighlightSize = Math.max(basePointSize * 0.6, basePointSize + 1.2);
+  const initialHighlightSize = Math.max(basePointSize * 1.05, basePointSize + 2.2);
   highlightMaterial = new THREE.PointsMaterial({
     size: initialHighlightSize,
     transparent: true,
     opacity: 0,
     depthWrite: false,
-    blending: THREE.NormalBlending,
+    blending: THREE.AdditiveBlending,
     map: sprite,
     alphaMap: sprite,
     alphaTest: 0.05,
@@ -937,40 +935,84 @@ function pickClosestIntersection(intersections) {
   return closest;
 }
 
+function clearSelectionHalo() {
+  selectedPointIndex = null;
+  if (highlightPoint) {
+    highlightPoint.visible = false;
+    highlightMaterial.opacity = 0;
+    highlightMaterial.size = Math.max(basePointSize * 1.05, basePointSize + 2.2);
+  }
+}
+
 function triggerHighlight(intersection, options = {}) {
   if (!highlightPoint || !highlightMaterial || !points) return;
 
   const { index, point } = intersection;
-  const { boost = 1 } = options;
+  const { boost = 1, halo = false } = options;
 
-  highlightPoint.position.copy(point);
-  highlightPoint.visible = false;
-  highlightMaterial.opacity = 0;
+  if (halo) {
+    highlightStartTime = performance.now();
+    highlightBoost = Math.max(1, boost);
+    setHoverColor(null);
+    selectedPointIndex = index;
 
-  highlightStartTime = performance.now();
-  highlightBoost = Math.max(1, boost);
+    if (baseColorArray) {
+      const baseIndex = index * 3;
+      highlightMaterial.color.setRGB(
+        baseColorArray[baseIndex],
+        baseColorArray[baseIndex + 1],
+        baseColorArray[baseIndex + 2]
+      );
+    } else {
+      const colorAttr = points.geometry.getAttribute("color");
+      if (colorAttr && typeof colorAttr.getX === "function") {
+        highlightMaterial.color.setRGB(
+          colorAttr.getX(index),
+          colorAttr.getY(index),
+          colorAttr.getZ(index)
+        );
+      }
+    }
 
-  setHoverColor(index);
-  boostGlow(index, 1.8 * highlightBoost);
+    highlightPoint.position.copy(point);
+    highlightPoint.visible = true;
+    const baseSize = Math.max(basePointSize * 1.2, basePointSize + 3);
+    highlightMaterial.size = baseSize;
+    highlightMaterial.opacity = 0.6;
+  } else {
+    if (selectedPointIndex !== null) {
+      highlightPoint.visible = true;
+    }
+    if (selectedPointIndex === null) {
+      highlightPoint.visible = false;
+      highlightMaterial.opacity = 0;
+    }
+    setHoverColor(index);
+  }
+
+  const glowFactor = halo ? 1.9 : 1.6;
+  boostGlow(index, glowFactor * highlightBoost);
 }
 
 function updateHighlight() {
   if (!highlightPoint || !highlightPoint.visible) return;
-
-  const now = performance.now();
-  const elapsed = now - highlightStartTime;
-
-  if (elapsed >= HIGHLIGHT_DURATION) {
+  if (selectedPointIndex === null) {
     highlightPoint.visible = false;
+    highlightMaterial.opacity = 0;
     return;
   }
 
-  const progress = elapsed / HIGHLIGHT_DURATION;
-  const fade = 1 - progress;
-  const pulse = 1 + Math.sin(progress * Math.PI) * 0.85;
-  highlightMaterial.opacity = fade;
-  const pulseBase = Math.max(basePointSize * 0.6, basePointSize + 1.2);
-  highlightMaterial.size = pulseBase * pulse * Math.max(1, highlightBoost * 0.5);
+  const now = performance.now();
+  const elapsed = now - highlightStartTime;
+  const pulseSpeed = 0.0035;
+  const pulse = 1 + Math.sin(elapsed * pulseSpeed) * 0.2;
+  const baseSize = Math.max(basePointSize * 1.2, basePointSize + 3);
+  highlightMaterial.size = baseSize * pulse;
+
+  const opacityPulse = 0.5 + 0.3 * Math.sin(elapsed * pulseSpeed + Math.PI / 2);
+  highlightMaterial.opacity = clamp01(0.45 + opacityPulse * 0.35);
+
+  boostGlow(selectedPointIndex, 1.9 * highlightBoost);
 }
 
 function spawnSparkle(x, y) {
