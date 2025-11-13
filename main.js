@@ -883,20 +883,20 @@ function spawnSparkle(x, y) {
   if (now - lastSparkleTime < SPARKLE_INTERVAL) return;
   lastSparkleTime = now;
 
-  const burstCount = 1 + Math.floor(Math.random() * 2);
+  const burstCount = Math.random() < 0.2 ? 2 : 1;
   for (let i = 0; i < burstCount; i += 1) {
     const sparkle = document.createElement("span");
     sparkle.className = "sparkle";
-    const offsetX = x + (Math.random() - 0.5) * 32;
-    const offsetY = y + (Math.random() - 0.5) * 32;
+    const offsetX = x + (Math.random() - 0.5) * 18;
+    const offsetY = y + (Math.random() - 0.5) * 18;
     sparkle.style.left = `${offsetX}px`;
     sparkle.style.top = `${offsetY}px`;
 
     const hue = Math.floor(180 + Math.random() * 140);
-    const saturation = 70 + Math.random() * 30;
-    const lightness = 62 + Math.random() * 26;
-    const accentHue = (hue + 30 + Math.random() * 50) % 360;
-    const size = 8 + Math.random() * 20;
+    const saturation = 60 + Math.random() * 22;
+    const lightness = 58 + Math.random() * 16;
+    const accentHue = (hue + 28 + Math.random() * 36) % 360;
+    const size = 4 + Math.random() * 8;
     sparkle.style.setProperty(
       "--sparkle-color",
       `hsla(${hue}, ${saturation}%, ${lightness}%, 0.95)`
@@ -913,7 +913,7 @@ function spawnSparkle(x, y) {
       "--sparkle-rotation",
       `${Math.random() * 360}deg`
     );
-    sparkle.style.animationDelay = `${Math.random() * 0.12}s`;
+    sparkle.style.animationDelay = `${Math.random() * 0.08}s`;
 
     sparkleLayer.appendChild(sparkle);
     sparkle.addEventListener("animationend", () => {

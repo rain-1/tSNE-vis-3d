@@ -180,22 +180,22 @@ html {
 
 .sparkle {
   position: absolute;
-  width: var(--sparkle-size, 14px);
-  height: var(--sparkle-size, 14px);
+  width: var(--sparkle-size, 10px);
+  height: var(--sparkle-size, 10px);
   border-radius: 999px;
   pointer-events: none;
   background:
     radial-gradient(
       circle at 30% 30%,
       rgba(255, 255, 255, 0.95) 0%,
-      rgba(255, 255, 255, 0.25) 45%,
-      rgba(255, 255, 255, 0) 75%
+      rgba(255, 255, 255, 0.22) 38%,
+      rgba(255, 255, 255, 0) 68%
     ),
     radial-gradient(
       circle at 70% 70%,
-      rgba(255, 255, 255, 0.85) 0%,
-      rgba(255, 255, 255, 0.15) 52%,
-      rgba(255, 255, 255, 0) 80%
+      rgba(255, 255, 255, 0.7) 0%,
+      rgba(255, 255, 255, 0.1) 46%,
+      rgba(255, 255, 255, 0) 72%
     ),
     radial-gradient(
       circle,
@@ -204,17 +204,18 @@ html {
       rgba(15, 23, 42, 0) 100%
     );
   box-shadow:
-    0 0 calc(var(--sparkle-size, 14px) * 0.8)
-      var(--sparkle-color, rgba(250, 204, 21, 0.65)),
-    0 0 calc(var(--sparkle-size, 14px) * 0.55)
-      var(--sparkle-accent, rgba(224, 231, 255, 0.75));
+    0 0 calc(var(--sparkle-size, 10px) * 0.55)
+      var(--sparkle-color, rgba(250, 204, 21, 0.45)),
+    0 0 calc(var(--sparkle-size, 10px) * 0.4)
+      var(--sparkle-accent, rgba(224, 231, 255, 0.55));
   mix-blend-mode: screen;
-  filter: saturate(175%) brightness(1.15) drop-shadow(0 0 8px rgba(255, 255, 255, 0.6));
-  transform: translate(-50%, -50%) rotate(var(--sparkle-rotation, 0deg)) scale(0.3);
+  filter: saturate(135%) brightness(1.05)
+    drop-shadow(0 0 5px rgba(255, 255, 255, 0.45));
+  transform: translate(-50%, -50%) rotate(var(--sparkle-rotation, 0deg)) scale(0.25);
   opacity: 0;
   animation:
-    sparkle-trail 1s ease-out forwards,
-    sparkle-flicker 1s ease-in-out forwards;
+    sparkle-trail 0.65s ease-out forwards,
+    sparkle-flicker 0.65s ease-in-out forwards;
 }
 
 .sparkle::before {
@@ -224,11 +225,11 @@ html {
   border-radius: inherit;
   background: radial-gradient(
     circle,
-    rgba(255, 255, 255, 0.95) 0%,
-    rgba(255, 255, 255, 0.05) 45%,
-    rgba(255, 255, 255, 0) 80%
+    rgba(255, 255, 255, 0.9) 0%,
+    rgba(255, 255, 255, 0.04) 40%,
+    rgba(255, 255, 255, 0) 70%
   );
-  filter: blur(0.6px);
+  filter: blur(0.4px);
 }
 
 .sparkle::after {
@@ -236,8 +237,8 @@ html {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: calc(var(--sparkle-size, 14px) * 1.35);
-  height: calc(var(--sparkle-size, 14px) * 1.35);
+  width: calc(var(--sparkle-size, 10px) * 1.2);
+  height: calc(var(--sparkle-size, 10px) * 1.2);
   background:
     linear-gradient(
       to right,
@@ -252,53 +253,53 @@ html {
       rgba(255, 255, 255, 0) 100%
     ) center / 26% 100% no-repeat;
   transform: translate(-50%, -50%) rotate(var(--sparkle-rotation, 0deg));
-  opacity: 0.92;
-  filter: blur(0.4px);
+  opacity: 0.78;
+  filter: blur(0.35px);
   mix-blend-mode: screen;
-  animation: sparkle-rays 1s ease-out forwards;
+  animation: sparkle-rays 0.6s ease-out forwards;
 }
 
 @keyframes sparkle-trail {
   0% {
     opacity: 1;
     transform: translate(-50%, -50%) rotate(var(--sparkle-rotation, 0deg))
-      scale(0.3);
+      scale(0.25);
   }
   40% {
     opacity: 1;
     transform: translate(-50%, -50%)
-      rotate(calc(var(--sparkle-rotation, 0deg) + 12deg)) scale(1);
+      rotate(calc(var(--sparkle-rotation, 0deg) + 10deg)) scale(0.9);
   }
   100% {
     opacity: 0;
     transform: translate(-50%, -50%)
-      rotate(calc(var(--sparkle-rotation, 0deg) + 28deg)) scale(1.9);
+      rotate(calc(var(--sparkle-rotation, 0deg) + 22deg)) scale(1.35);
   }
 }
 
 @keyframes sparkle-flicker {
   0% {
-    filter: saturate(150%) brightness(1.4);
+    filter: saturate(120%) brightness(1.2);
   }
   50% {
-    filter: saturate(220%) brightness(1.85);
+    filter: saturate(160%) brightness(1.4);
   }
   100% {
-    filter: saturate(135%) brightness(1.2);
+    filter: saturate(115%) brightness(1.1);
   }
 }
 
 @keyframes sparkle-rays {
   0% {
     opacity: 0;
-    transform: translate(-50%, -50%) scale(0.4);
+    transform: translate(-50%, -50%) scale(0.35);
   }
   35% {
     opacity: 1;
   }
   100% {
     opacity: 0;
-    transform: translate(-50%, -50%) scale(1.4);
+    transform: translate(-50%, -50%) scale(1.2);
   }
 }
 
