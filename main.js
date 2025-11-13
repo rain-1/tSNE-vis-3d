@@ -29,6 +29,9 @@ let fullBoundingSphere = null;
 let activeHoverIndex = null;
 const hoverOriginalColor = [0, 0, 0];
 let selectedPointIndex = null;
+const selectedPointPosition = new THREE.Vector3();
+const tempVector = new THREE.Vector3();
+const tempWorldPosition = new THREE.Vector3();
 
 const SPARKLE_INTERVAL = 14;
 const FOCUS_FADE_FACTOR = 0.06;
@@ -601,6 +604,49 @@ function createPointSprite() {
   return texture;
 }
 
+function createRingSprite() {
+  const size = 192;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const context = canvas.getContext("2d");
+
+  const center = size / 2;
+  const radius = size * 0.38;
+
+  const gradient = context.createRadialGradient(
+    center,
+    center,
+    radius * 0.45,
+    center,
+    center,
+    radius
+  );
+
+  gradient.addColorStop(0.0, "rgba(255, 255, 255, 0)");
+  gradient.addColorStop(0.6, "rgba(255, 255, 255, 0)");
+  gradient.addColorStop(0.78, "rgba(255, 255, 255, 0.85)");
+  gradient.addColorStop(0.9, "rgba(255, 255, 255, 0.25)");
+  gradient.addColorStop(1.0, "rgba(255, 255, 255, 0)");
+
+  context.fillStyle = gradient;
+  context.beginPath();
+  context.arc(center, center, radius, 0, Math.PI * 2);
+  context.fill();
+
+  context.lineWidth = size * 0.018;
+  context.strokeStyle = "rgba(255, 255, 255, 0.55)";
+  context.beginPath();
+  context.arc(center, center, radius * 0.92, 0, Math.PI * 2);
+  context.stroke();
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.needsUpdate = true;
+  return texture;
+}
+  createHighlightPoint(sprite);
+
 function createGradientPlane() {
   const geometry = new THREE.PlaneGeometry(200, 200, 1, 1);
   const material = new THREE.ShaderMaterial({
@@ -813,16 +859,18 @@ function createHighlightPoint(sprite) {
     new THREE.Float32BufferAttribute([0, 0, 0], 3)
   );
 
-  const initialHighlightSize = Math.max(basePointSize * 1.05, basePointSize + 2.2);
+  const initialHighlightSize = Math.max(basePointSize * 0.85, basePointSize + 1.6);
+  const ringTexture = createRingSprite();
   highlightMaterial = new THREE.PointsMaterial({
     size: initialHighlightSize,
     transparent: true,
     opacity: 0,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
-    map: sprite,
-    alphaMap: sprite,
-    alphaTest: 0.05,
+    map: ringTexture,
+    alphaMap: ringTexture,
+    alphaTest: 0.02,
+    sizeAttenuation: false,
     color: new THREE.Color(0xffffff),
   });
 
@@ -935,8 +983,44 @@ function pickClosestIntersection(intersections) {
   return closest;
 }
 
+function computeHaloPixelSize(position) {
+  if (!points || !position) {
+    return 16;
+  }
+
+  tempVector.copy(position);
+  tempVector.applyMatrix4(camera.matrixWorldInverse);
+  const mvZ = tempVector.z;
+
+  const uniforms = points.material?.uniforms;
+  const baseSize = uniforms?.uSize?.value ?? basePointSize;
+  const pixelRatio = uniforms?.uPixelRatio?.value ?? Math.min(window.devicePixelRatio, 2);
+
+  const perspectiveScale = 45 / Math.max(0.0001, -mvZ);
+  let pixelSize = pixelRatio * baseSize * perspectiveScale;
+  pixelSize = clamp(pixelSize, 2, 160);
+  return pixelSize;
+}
+
+function getPointWorldPosition(index, target) {
+  if (!points || !target) {
+    return new THREE.Vector3();
+  }
+
+  const positionAttr = points.geometry.getAttribute("position");
+  if (!positionAttr || index < 0 || index >= positionAttr.count) {
+    return target.set(0, 0, 0);
+  }
+
+  points.updateMatrixWorld(true);
+  target.fromBufferAttribute(positionAttr, index);
+  target.applyMatrix4(points.matrixWorld);
+  return target;
+}
+
 function clearSelectionHalo() {
   selectedPointIndex = null;
+    selectedPointPosition.set(0, 0, 0);
   if (highlightPoint) {
     highlightPoint.visible = false;
     highlightMaterial.opacity = 0;
@@ -947,7 +1031,7 @@ function clearSelectionHalo() {
 function triggerHighlight(intersection, options = {}) {
   if (!highlightPoint || !highlightMaterial || !points) return;
 
-  const { index, point } = intersection;
+  const { index } = intersection;
   const { boost = 1, halo = false } = options;
 
   if (halo) {
@@ -955,6 +1039,8 @@ function triggerHighlight(intersection, options = {}) {
     highlightBoost = Math.max(1, boost);
     setHoverColor(null);
     selectedPointIndex = index;
+    const worldPosition = getPointWorldPosition(index, tempWorldPosition);
+    selectedPointPosition.copy(worldPosition);
 
     if (baseColorArray) {
       const baseIndex = index * 3;
@@ -974,10 +1060,10 @@ function triggerHighlight(intersection, options = {}) {
       }
     }
 
-    highlightPoint.position.copy(point);
+    highlightPoint.position.copy(selectedPointPosition);
     highlightPoint.visible = true;
-    const baseSize = Math.max(basePointSize * 1.2, basePointSize + 3);
-    highlightMaterial.size = baseSize;
+    const haloPixelSize = computeHaloPixelSize(selectedPointPosition);
+    highlightMaterial.size = haloPixelSize * 2.9;
     highlightMaterial.opacity = 0.6;
   } else {
     if (selectedPointIndex !== null) {
@@ -1005,12 +1091,17 @@ function updateHighlight() {
   const now = performance.now();
   const elapsed = now - highlightStartTime;
   const pulseSpeed = 0.0035;
-  const pulse = 1 + Math.sin(elapsed * pulseSpeed) * 0.2;
-  const baseSize = Math.max(basePointSize * 1.2, basePointSize + 3);
-  highlightMaterial.size = baseSize * pulse;
+  const pulse = 1 + Math.sin(elapsed * pulseSpeed) * 0.12;
+  const currentWorldPosition = getPointWorldPosition(
+    selectedPointIndex,
+    selectedPointPosition
+  );
+  highlightPoint.position.copy(currentWorldPosition);
+  const haloPixelSize = computeHaloPixelSize(currentWorldPosition);
+  highlightMaterial.size = haloPixelSize * 2.9 * pulse;
 
-  const opacityPulse = 0.5 + 0.3 * Math.sin(elapsed * pulseSpeed + Math.PI / 2);
-  highlightMaterial.opacity = clamp01(0.45 + opacityPulse * 0.35);
+  const opacityPulse = 0.5 + 0.22 * Math.sin(elapsed * pulseSpeed + Math.PI / 2);
+  highlightMaterial.opacity = clamp01(0.4 + opacityPulse * 0.3);
 
   boostGlow(selectedPointIndex, 1.9 * highlightBoost);
 }
