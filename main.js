@@ -36,6 +36,8 @@ const tempWorldPosition = new THREE.Vector3();
 const focusDirection = new THREE.Vector3(1, 0.8, 1).normalize();
 let focusAnimation = null;
 const rotationPivot = new THREE.Vector3();
+let pivotAnimation = null;
+const pivotScratch = new THREE.Vector3();
 
 const SPARKLE_INTERVAL = 14;
 const FOCUS_FADE_FACTOR = 0.06;
@@ -277,9 +279,7 @@ function createPointCloud(data) {
   pointsGroup.position.set(0, 0, 0);
   pointsGroup.rotation.set(0, 0, 0);
   pointsGroup.add(points);
-  rotationPivot.set(0, 0, 0);
-  pointsGroup.updateMatrixWorld(true);
-  points.updateMatrixWorld(true);
+  setRotationPivot(tempVector.set(0, 0, 0), { immediate: true });
 
   createHighlightPoint(sprite);
 
@@ -629,7 +629,7 @@ function focusCluster(clusterId) {
   hideTooltip();
   setHoverColor(null);
   clearSelectionHalo();
-  setRotationPivot(meta.center);
+  setRotationPivot(meta.center, { duration: 850 });
 
   const radius = Number.isFinite(meta.radius) && meta.radius > 0 ? meta.radius : 1;
   const paddedRadius = Math.max(radius * 1.6 + basePointSize * 0.5, 6);
@@ -654,8 +654,10 @@ function resetFocusView() {
   hideTooltip();
   setHoverColor(null);
   clearSelectionHalo();
-  const basePivot = fullBoundingSphere?.center ?? tempVector.set(0, 0, 0);
-  setRotationPivot(basePivot);
+  const basePivot = fullBoundingSphere?.center
+    ? fullBoundingSphere.center.clone()
+    : tempVector.set(0, 0, 0);
+  setRotationPivot(basePivot, { duration: 900 });
 
   controls.autoRotate = true;
 
@@ -732,16 +734,59 @@ function setHoveredClusterButton(clusterId) {
   });
 }
 
-function setRotationPivot(pivot) {
+function setRotationPivot(pivot, options = {}) {
   if (!points || !pointsGroup) return;
 
-  const source = pivot ?? tempVector.set(0, 0, 0);
-  rotationPivot.copy(source);
+  const { immediate = false, duration = 750 } = options;
+  const target = pivot && pivot.isVector3
+    ? pivot.clone()
+    : new THREE.Vector3(
+        pivot?.x ?? 0,
+        pivot?.y ?? 0,
+        pivot?.z ?? 0
+      );
+
+  if (rotationPivot.distanceTo(target) < 1e-5 || immediate || duration <= 1) {
+    pivotAnimation = null;
+    applyRotationPivot(target);
+    return;
+  }
+
+  const safeDuration = Math.max(1, duration ?? 750);
+  pivotAnimation = {
+    startTime: performance.now(),
+    duration: safeDuration,
+    from: rotationPivot.clone(),
+    to: target,
+  };
+}
+
+function applyRotationPivot(vector) {
+  if (!points || !pointsGroup) return;
+
+  rotationPivot.copy(vector ?? tempVector.set(0, 0, 0));
   pointsGroup.position.copy(rotationPivot);
   points.position.set(-rotationPivot.x, -rotationPivot.y, -rotationPivot.z);
   points.updateMatrix();
   pointsGroup.updateMatrixWorld(true);
   points.updateMatrixWorld(true);
+}
+
+function updatePivotAnimation() {
+  if (!pivotAnimation) return;
+
+  const now = performance.now();
+  const elapsed = now - pivotAnimation.startTime;
+  const progress = clamp(elapsed / pivotAnimation.duration, 0, 1);
+  const eased = easeInOutCubic(progress);
+
+  pivotScratch.copy(pivotAnimation.from).lerp(pivotAnimation.to, eased);
+  applyRotationPivot(pivotScratch);
+
+  if (progress >= 1) {
+    applyRotationPivot(pivotAnimation.to);
+    pivotAnimation = null;
+  }
 }
 
 function updateColorFades(delta) {
@@ -1069,6 +1114,8 @@ function animate(time = 0) {
 
   const delta = lastFrameTime ? (time - lastFrameTime) / 1000 : 0.016;
   lastFrameTime = time;
+
+  updatePivotAnimation();
 
   if (pointsGroup && points) {
     pointsGroup.rotation.y += 0.00028;
