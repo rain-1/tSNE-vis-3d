@@ -103,7 +103,7 @@ function init() {
 
 async function loadData() {
   try {
-    const response = await fetch("assets/data/df_plot.jsonl");
+    const response = await fetch("assets/data/df_plot_nov14_prod.jsonl");
     if (!response.ok) {
       throw new Error(`Failed to load data: ${response.status}`);
     }
@@ -196,8 +196,8 @@ function createPointCloud(data) {
       uSprite: { value: sprite },
       uFadeDistance: { value: fadeDistance },
       uGlowBoost: { value: 3.0 },
-      uMinFade: { value: 0.42 },
-      uPulseAmp: { value: 0.28 },
+      uMinFade: { value: 0.62 },
+      uPulseAmp: { value: 0.48 },
     },
     vertexShader: `
       attribute vec3 color;
