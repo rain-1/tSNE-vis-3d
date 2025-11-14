@@ -155,6 +155,17 @@ function createPointCloud(data) {
     pulseSeeds[i] = Math.random() * Math.PI * 2;
     glowStrengths[i] = 0;
 
+    const transcriptId =
+      item["transcript_id"] ??
+      item["Transcript ID"] ??
+      item["transcriptId"] ??
+      null;
+    const sequenceIndex =
+      item["sequence_index"] ??
+      item["Sequence Index"] ??
+      item["sequenceIndex"] ??
+      null;
+
     userData.push({
       index,
       cluster: item["Cluster"],
@@ -162,6 +173,8 @@ function createPointCloud(data) {
       original: item["Original String"],
       chopped: item["Original String Chopped"],
       link: item["URL"],
+      transcriptId,
+      sequenceIndex,
     });
 
     i += 1;
@@ -1029,10 +1042,7 @@ function onClick(event) {
 
 function showInfoPanel(metadata) {
   infoPanel.classList.remove("hidden");
-  const title = metadata.label
-    ? `Cluster ${metadata.cluster} · ${metadata.label}`
-    : `Cluster ${metadata.cluster}`;
-  infoTitle.textContent = title;
+  renderInfoTitle(metadata);
   infoContent.textContent = metadata.original ?? metadata.chopped ?? "";
 
   if (metadata.link) {
@@ -1044,6 +1054,43 @@ function showInfoPanel(metadata) {
     infoLink.href = "#";
     infoLink.classList.add("hidden");
   }
+}
+
+function renderInfoTitle(metadata) {
+  if (!infoTitle) return;
+
+  const transcriptId = metadata?.transcriptId;
+  const sequenceIndex = metadata?.sequenceIndex;
+  const hasDeepLink =
+    transcriptId !== null &&
+    transcriptId !== undefined &&
+    sequenceIndex !== null &&
+    sequenceIndex !== undefined;
+
+  if (!hasDeepLink) {
+    const fallbackTitle = metadata?.label
+      ? `Cluster ${metadata.cluster} · ${metadata.label}`
+      : `Cluster ${metadata?.cluster ?? ""}`;
+    infoTitle.textContent = fallbackTitle;
+    return;
+  }
+
+  const url = new URL(
+    `https://chain-of-thought.org/transcripts/${encodeURIComponent(
+      String(transcriptId)
+    )}`
+  );
+  url.hash = `message-${encodeURIComponent(String(sequenceIndex))}`;
+
+  const linkLabel = `${transcriptId}/${sequenceIndex}`;
+
+  infoTitle.textContent = "";
+  const anchor = document.createElement("a");
+  anchor.href = url.toString();
+  anchor.textContent = linkLabel;
+  anchor.target = "_blank";
+  anchor.rel = "noopener noreferrer";
+  infoTitle.appendChild(anchor);
 }
 
 function hideInfoPanel() {
